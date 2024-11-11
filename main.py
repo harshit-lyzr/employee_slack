@@ -63,7 +63,7 @@ def handle_message_events(body, logger):
     else:
         client.chat_postMessage(channel=body["event"]["channel"],
                                 thread_ts=body["event"]["event_ts"],
-                                text=f"Hello from your Employee Suport Agent! 😄 \nKeep an eye out—I’ll be back soon!")
+                                text=f"Hello and welcome to Employee Support! 😊 \n Just a moment while I gather the info you need—thank you for your patience!")
         print("TS: ", body['event']['ts'])
         session_id = body['event']['ts']
         message = call_lyzragent(prompt, session_id)
