@@ -3,18 +3,16 @@ from openai import OpenAI
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 from slack_bolt import App
-from lyzr_agent_api.client import AgentAPI
-from lyzr_agent_api.models.chat import ChatRequest
+from slack_sdk.errors import SlackApiError
 from dotenv import load_dotenv
+from chat import retrieve_data, call_lyzragent
+import time
+
 
 load_dotenv()
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LYZR_API_KEY = os.getenv("LYZR_API_KEY")
-
-
-lyzr_client = AgentAPI(x_api_key=LYZR_API_KEY)
 
 # Event API & Web API
 app = App(token=SLACK_BOT_TOKEN)
@@ -22,64 +20,70 @@ client = WebClient(SLACK_BOT_TOKEN)
 client1 = OpenAI(api_key=OPENAI_API_KEY)
 
 
-def call_lyzragent(question, session):
+def get_user_profile(user_id):
+    try:
+        # Call the users.profile.get method to fetch user profile details
+        response = client.users_profile_get(user=user_id)
 
-    response = lyzr_client.chat_with_agent(
-        json_body=ChatRequest(
-            user_id="harshit@lyzr.ai",
-            agent_id="672d071761f92e3cfeebacd2",  # Replace with the actual agent ID
-            message=question,
-            session_id=session,
-        )
-    )
-
-    return response['response']
+        # Extract the profile information
+        profile = response['profile']
+        return profile
+    except SlackApiError as e:
+        print(f"Error fetching user profile: {e.response['error']}")
 
 
 # This gets activated when the bot is tagged in a channel
 @app.event("app_mention")
 def handle_message_events(body, logger):
-
-    # Log message
-    print(str(body["event"]["text"]).split(">")[1])
-
-    # Create prompt for ChatGPT
+    # Extract message prompt
     prompt = str(body["event"]["text"]).split(">")[1]
+    user_profile = get_user_profile(body["event"]["user"])
 
-    # Let thre user know that we are busy with the request 
-    # response = client.chat_postMessage(channel=body["event"]["channel"],
-    #                                    thread_ts=body["event"]["event_ts"],
-    #                                    text=f"Hello from your Employee Suport Agent! 😄 \nKeep an eye out—I’ll be back soon!")
+    # Determine if the message is part of a thread
+    is_thread = 'thread_ts' in body['event']
+    sessions_id = body['event'].get('thread_ts', body['event']['ts'])
 
-
-    if 'thread_ts' in body['event']:
-        session_id = body['event']['thread_ts']
-        print("thread: ", session_id)
-        print("TS: ", body['event']['ts'])
+    # Helper function for posting messages
+    def post_message_with_attachments(channel, ts, session_id, is_thread):
+        start_time = time.time()
         message = call_lyzragent(prompt, session_id)
-        response = client.chat_postMessage(channel=body["event"]["channel"],
-                                           thread_ts=body["event"]["event_ts"],
-                                           text=f"\n{message}")
+        data = retrieve_data(query=prompt)
+        attachments = [
+            {
+                "color": "#f2c744",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": item
+                        }
+                    }
+                ]
+            } for item in data[:3]
+        ]
+        client.chat_postMessage(
+            channel=channel,
+            thread_ts=ts,
+            text=f"\n{message} \n\n*Sources:*",
+            attachments=attachments
+        )
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        # send_mixpanel_event(prompt, body["event"]["user"],user_profile['email'], user_profile['real_name'], elapsed_time, is_thread)
+
+    # Post message based on thread status
+    if is_thread:
+        post_message_with_attachments(body["event"]["channel"], body["event"]["event_ts"], sessions_id, is_thread=False)
     else:
-        client.chat_postMessage(channel=body["event"]["channel"],
-                                thread_ts=body["event"]["event_ts"],
-                                text=f"Hello and welcome to Employee Support! 😊 \nJust a moment while I gather the info you need—thank you for your patience!")
-        print("TS: ", body['event']['ts'])
-        session_id = body['event']['ts']
-        message = call_lyzragent(prompt, session_id)
-        response = client.chat_postMessage(channel=body["event"]["channel"],
-                                           thread_ts=body["event"]["event_ts"],
-                                           text=f"\n{message}")
-    # Check ChatGPT
-    # openai.api_key = OPENAI_API_KEY
-    # message = call_chatagent(prompt)
+        # Initial response for non-threaded mentions
+        client.chat_postMessage(
+            channel=body["event"]["channel"],
+            thread_ts=body["event"]["event_ts"],
+            text="Hello and welcome to Employee Support! :blush: \n\nJust a moment while I gather the info you need—thank you for your patience!"
+        )
+        post_message_with_attachments(body["event"]["channel"], body["event"]["event_ts"], sessions_id, is_thread=True)
 
-    # print(body["event"]["event_ts"])
-    #
-    # # Reply to thread
-    # response = client.chat_postMessage(channel=body["event"]["channel"],
-    #                                    thread_ts=body["event"]["event_ts"],
-    #                                    text=f"\n{message}")
 
 
 if __name__ == "__main__":
