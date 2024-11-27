@@ -9,7 +9,7 @@ LYZR_API_KEY = os.getenv("LYZR_API_KEY")
 
 lyzr_client = AgentAPI(x_api_key=LYZR_API_KEY)
 def retrieve_data(query):
-    url = 'https://rag-agent-api.dev.app.lyzr.ai/rag/retrieve/126220057538144'
+    url = 'https://rag-agent-api.dev.app.lyzr.ai/rag/retrieve/127754123179824'
     params = {'query': query}
     headers = {'accept': 'application/json'}
 

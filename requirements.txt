@@ -3,3 +3,4 @@ openai
 slack_sdk
 slack_bolt
 lyzr_agent_api
+requests
